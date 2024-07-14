@@ -1,5 +1,4 @@
-Flask==2.0.2
-yt-dlp
+
 uvloop
 yt-dlp
 youtube-search
@@ -12,10 +11,5 @@ validators
 requests
 bs4
 pytz
-python-dotenv==0.21.1
 Flask==1.1.2
 gunicorn==20.1.0
-Jinja2==3.0.3
-werkzeug==2.0.2
-telegraph
-itsdangerous==2.0.1
