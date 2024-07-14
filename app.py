@@ -9,116 +9,105 @@ app = Flask(__name__)
 # Ensure ffmpeg is installed
 os.system('bash install_ffmpeg.sh')
 
-@app.route('/')
-def index():
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>YouTube Downloader</title>
-        <style>
-            /* Your CSS styles */
-        </style>
-        <script>
-            /* Your JavaScript functions */
-        </script>
-    </head>
-    <body onload="showTab('downloader')">
-        <div class="tab-container">
-            <div id="downloader" class="tab active" onclick="showTab('downloader')">YouTube Downloader</div>
-            <div id="search" class="tab" onclick="showTab('search')">YouTube Search</div>
-            <div id="song-downloader" class="tab" onclick="showTab('song-downloader')">Song Downloader</div>
-        </div>
+from flask import Flask, send_file, abort
+import yt_dlp
+import os
 
-        <div id="downloader-content" class="content active">
-            <div class="form-container">
-                <form method="POST" action="/get_formats">
-                    <input type="text" id="url" name="url" class="input-box" placeholder="Paste YouTube URL here" required>
-                    <button type="submit" class="submit-button">Check and Download</button>
-                </form>
-            </div>
-        </div>
+app = Flask(__name__)
 
-        <div id="search-content" class="content">
-            <div class="form-container">
-                <form method="POST" action="/search">
-                    <input type="text" id="query" name="query" class="input-box" placeholder="Search for videos or songs" required>
-                    <button type="submit" class="submit-button">Search</button>
-                </form>
-            </div>
-            <div id="search-results" class="form-container"></div>
-        </div>
+# Function to download the video thumbnail
+def download_thumbnail(video_id):
+    ydl_opts = {
+        'skip_download': True,
+        'writethumbnail': True,
+        'outtmpl': f'thumbnails/{video_id}.%(ext)s',
+        'cookiefile': 'cookies.txt',  # Specify the path to the cookies file
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
+    
+    for ext in ['jpg', 'webp', 'png']:
+        thumbnail_path = f'thumbnails/{video_id}.{ext}'
+        if os.path.exists(thumbnail_path):
+            return thumbnail_path
+    return None
 
-        <div id="song-downloader-content" class="content">
-            <div class="form-container">
-                <form method="POST" action="/download_song">
-                    <input type="text" id="song_url" name="song_url" class="input-box" placeholder="Paste song URL or video ID" required>
-                    <button type="submit" class="submit-button">Download Song</button>
-                </form>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    return render_template_string(html_content)
+# Function to download the video
+def download_video(video_id):
+    ydl_opts = {
+        'format': 'best',
+        'outtmpl': f'videos/{video_id}.%(ext)s',
+        'cookiefile': 'cookies.txt',  # Specify the path to the cookies file
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
+    
+    for ext in ['mp4', 'webm']:
+        video_path = f'videos/{video_id}.{ext}'
+        if os.path.exists(video_path):
+            return video_path
+    return None
 
-@app.route('/get_formats', methods=['POST'])
-def get_formats():
-    url = request.form['url']
-    formats = get_available_formats(url)
+# Function to download the audio
+def download_audio(video_id):
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': f'audios/{video_id}.%(ext)s',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'cookiefile': 'cookies.txt',  # Specify the path to the cookies file
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
+    except yt_dlp.utils.DownloadError:
+        # Fallback to medium quality if original quality is not available
+        ydl_opts['format'] = 'bestaudio[abr<=128]/best[abr<=128]'
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
+    
+    for ext in ['mp3']:
+        audio_path = f'audios/{video_id}.{ext}'
+        if os.path.exists(audio_path):
+            return audio_path
+    return None
 
-    html_content = """
-    <div class="form-container">
-        <h2>Select Quality</h2>
-        <form method="POST" action="/download">
-            <input type="hidden" name="url" value="{{ url }}">
-            {% for fmt in formats %}
-            <div>
-                <input type="radio" id="{{ fmt['format_id'] }}" name="format_id" value="{{ fmt['format_id'] }}" required>
-                <label for="{{ fmt['format_id'] }}">{{ fmt['label'] }}</label>
-            </div>
-            {% endfor %}
-            <button type="submit" class="submit-button">Download</button>
-        </form>
-    </div>
-    """
-    return render_template_string(html_content, url=url, formats=formats)
+@app.route('/thumbnail/<video_id>', methods=['GET'])
+def get_thumbnail(video_id):
+    thumbnail_path = download_thumbnail(video_id)
+    if thumbnail_path:
+        return send_file(thumbnail_path, as_attachment=True)
+    else:
+        abort(404, description="Thumbnail not found")
 
-@app.route('/search', methods=['POST'])
-def search():
-    query = request.form['query']
-    results = search_youtube(query)
-    html_content = """
-    <div class="form-container">
-        <h2>Search Results</h2>
-        <form method="POST" action="/get_formats">
-            {% for result in results %}
-            <div class="result-item">
-                <input type="radio" id="{{ result['id'] }}" name="url" value="{{ result['url'] }}" required>
-                <label for="{{ result['id'] }}">
-                    {% if result['type'] == 'video' %}
-                        <img src="{{ result['thumbnail'] }}" alt="Thumbnail" class="video-thumbnail">
-                        <div class="video-details">
-                            <div class="video-title">{{ result['title'] }}</div>
-                            <div class="video-duration">{{ result['duration'] }}</div>
-                        </div>
-                    {% elif result['type'] == 'song' %}
-                        <img src="{{ result['thumbnail'] }}" alt="Thumbnail" class="song-thumbnail">
-                        <div class="song-details">
-                            <div class="song-title">{{ result['title'] }}</div>
-                            <div class="song-artist">{{ result['artist'] }}</div>
-                        </div>
-                    {% endif %}
-                </label>
-            </div>
-            {% endfor %}
-            <button type="submit" class="submit-button">Download Selected</button>
-        </form>
-    </div>
-    """
-    return render_template_string(html_content, results=results)
+@app.route('/video/<video_id>', methods=['GET'])
+def get_video(video_id):
+    video_path = download_video(video_id)
+    if video_path:
+        return send_file(video_path, as_attachment=True)
+    else:
+        abort(404, description="Video not found")
+
+@app.route('/audio/<video_id>', methods=['GET'])
+def get_audio(video_id):
+    audio_path = download_audio(video_id)
+    if audio_path:
+        return send_file(audio_path, as_attachment=True)
+    else:
+        abort(404, description="Audio not found")
+
+if __name__ == '__main__':
+    if not os.path.exists('thumbnails'):
+        os.makedirs('thumbnails')
+    if not os.path.exists('videos'):
+        os.makedirs('videos')
+    if not os.path.exists('audios'):
+        os.makedirs('audios')
+    app.run(debug=True, host='0.0.0.0', port=5000)
+
 
 @app.route('/download', methods=['POST'])
 def download():
