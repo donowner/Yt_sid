@@ -8,12 +8,40 @@ app = Flask(__name__)
 
 # Ensure ffmpeg is installed
 os.system('bash install_ffmpeg.sh')
-
+from aiohttp import web
 from flask import Flask, send_file, abort
 import yt_dlp
 import os
 
 app = Flask(__name__)
+
+
+from aiohttp import web
+import re
+import time
+import math
+import logging
+import secrets
+import mimetypes
+from aiohttp import web
+
+
+routes = web.RouteTableDef()
+
+@routes.get("/", allow_head=True)
+async def root_route_handler(_):
+    return web.json_response(
+        {
+            "server_status": "running",
+            "telegram_bot": "@musicbot",
+        }
+    )
+    
+async def web_server():
+    web_app = web.Application(client_max_size=30000000)
+    web_app.add_routes(routes)
+    return web_app
+
 
 # Function to download the video thumbnail
 def download_thumbnail(video_id):
@@ -99,6 +127,14 @@ def get_audio(video_id):
     else:
         abort(404, description="Audio not found")
 
+
+async def web_server():
+    app = web.Application()
+    app.add_routes([web.get('/thumbnail/{video_id}', download_thumbnail)])
+    app.add_routes([web.get('/video/{video_id}', download_video)])
+    app.add_routes([web.get('/audio/{video_id}', download_audio)])
+    return app
+
 if __name__ == '__main__':
     if not os.path.exists('thumbnails'):
         os.makedirs('thumbnails')
@@ -106,86 +142,5 @@ if __name__ == '__main__':
         os.makedirs('videos')
     if not os.path.exists('audios'):
         os.makedirs('audios')
-    app.run(debug=True, host='0.0.0.0', port=5000)
-
-
-@app.route('/download', methods=['POST'])
-def download():
-    url = request.form['url']
-    format_id = request.form['format_id']
-    file_path, filename = download_with_ytdlp(url, format_id)
-    return send_file(file_path, as_attachment=True, download_name=filename)
-
-@app.route('/download_song', methods=['POST'])
-def download_song():
-    song_url = request.form['song_url']
-    # Logic to download song by URL or video ID
-    # Example: Assuming you have a function to handle song downloads
-    file_path, filename = download_song_by_url(song_url)
-    return send_file(file_path, as_attachment=True, download_name=filename)
-
-def search_youtube(query):
-    videos_search = VideosSearch(query, limit=10)
-    videos = []
-    for video in videos_search.result()['result']:
-        videos.append({
-            'id': video['id'],
-            'url': video['link'],
-            'thumbnail': video['thumbnails'][0]['url'],
-            'title': video['title'],
-            'duration': video.get('duration', 'N/A'),
-            'type': 'video'
-        })
-    # Example: Also search for songs using another library like Spotify API
-    return videos
-
-def download_song_by_url(song_url):
-    # Logic to download song by URL or video ID using yt_dlp or other methods
-    temp_dir = tempfile.gettempdir()
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(song_url, download=True)
-        file_path = ydl.prepare_filename(info_dict)
-        file_extension = info_dict.get('ext', 'mp3')
-        file_title = info_dict.get('title', 'downloaded_song')
-        filename = f"{file_title}.{file_extension}"
-    return file_path, filename
-
-def get_available_formats(url):
-    ydl_opts = {'listformats': True}
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(url, download=False)
-        formats = info_dict['formats']
-        available_formats = []
-
-        for fmt in formats:
-            if fmt.get('vcodec') != 'none' and fmt.get('acodec') != 'none':
-                if 'height' in fmt:
-                    label = f"{fmt['height']}p ({fmt['format_note']})"
-                else:
-                    label = fmt['format_note']
-                available_formats.append({'format_id': fmt['format_id'], 'label': label})
-
-        return available_formats
-
-def download_with_ytdlp(url, format_id):
-    temp_dir = tempfile.gettempdir()
-    ydl_opts = {
-        'format': format_id,
-        'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-        'merge_output_format': 'mp4',
-    }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(url, download=True)
-        file_path = ydl.prepare_filename(info_dict)
-        file_extension = info_dict.get('ext', 'mp4')
-        file_title = info_dict.get('title', 'downloaded_video')
-        filename = f"{file_title}.{file_extension}"
-        return file_path, filename
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
+    
+    web.run_app(web_server(), host='0.0.0.0', port=8080)
